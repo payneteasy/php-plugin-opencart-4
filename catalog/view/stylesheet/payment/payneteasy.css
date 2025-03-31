@@ -1,0 +1,11 @@
+.payneteasy .payneteasy-row{
+  display: flex;
+  margin: 10px 0;
+  padding: 0;
+  align-items: center;
+}
+.payneteasy .payneteasy-row .payneteasy-col img{
+  max-height: 25px;
+  margin: 0 10px 0 0;
+  padding: 0;
+}

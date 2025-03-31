@@ -1,0 +1,166 @@
+{{ header }}{{ column_left }}
+<div id="content">
+  <div class="page-header">
+    <div class="container-fluid">
+      <div class="float-end">
+        <button type="submit" form="form-payment" data-bs-toggle="tooltip" title="{{ button_save }}" class="btn btn-primary"><i class="fa-solid fa-save"></i></button>
+        <a href="{{ back }}" data-bs-toggle="tooltip" title="{{ button_back }}" class="btn btn-light"><i class="fa-solid fa-reply"></i></a>
+      </div>
+      <h1>{{ heading_title }}</h1>
+      <ol class="breadcrumb">
+        {% for breadcrumb in breadcrumbs %}
+          <li class="breadcrumb-item"><a href="{{ breadcrumb.href }}">{{ breadcrumb.text }}</a></li>
+        {% endfor %}
+      </ol>
+    </div>
+  </div>
+  <div class="container-fluid">
+    <div class="card">
+      <div class="card-header"><i class="fa-solid fa-pencil"></i> {{ text_edit }}</div>
+      <div class="card-body">
+        <form id="form-payment" action="{{ save }}" method="post" data-oc-toggle="ajax">
+        
+          <div class="row mb-3">
+            <label for="input-desc" class="col-sm-2 col-form-label">{{ entry_desc }}</label>
+            <div class="col-sm-10">
+              <textarea name="payment_payneteasy_desc" rows="3" id="input-desc" class="form-control">{{ payment_payneteasy_desc }}</textarea>
+              <div id="error-desc" class="invalid-feedback"></div>
+            </div>
+          </div>
+
+          <div class="row mb-3">
+            <label for="input-live-url" class="col-sm-2 col-form-label">{{ entry_live_url }}</label>
+            <div class="col-sm-10">
+              <input type="text" name="payment_payneteasy_live_url" value="{{ payment_payneteasy_live_url }}" id="input-live-url" class="form-control"/>
+              <span>{{ text_live_url }}</span>
+            </div>
+          </div>
+
+          <div class="row mb-3">
+            <label for="input-sandbox-url" class="col-sm-2 col-form-label">{{ entry_sandbox_url }}</label>
+            <div class="col-sm-10">
+              <input type="text" name="payment_payneteasy_sandbox_url" value="{{ payment_payneteasy_sandbox_url }}" id="input-sandbox-url" class="form-control"/>
+              <span>{{ text_sandbox_url }}</span>
+            </div>
+          </div>
+
+          <div class="row mb-3">
+            <label for="input-three-d-secure" class="col-sm-2 col-form-label">{{ entry_three_d_secure }}</label>
+            <div class="col-sm-10">
+              <div class="form-check form-switch form-switch-lg">
+                <input type="hidden" name="payment_payneteasy_three_d_secure" value="0"/>
+                <input type="checkbox" name="payment_payneteasy_three_d_secure" value="1" id="input-three-d-secure" class="form-check-input" {% if payment_payneteasy_three_d_secure %} checked="checked" {% endif %}/>
+              </div>
+              <span>{{ text_three_d_secure }}</span>
+            </div>
+          </div>
+        
+          <div class="row mb-3 required">
+            <label for="input-endpoint-id" class="col-sm-2 col-form-label">{{ entry_endpoint_id }}</label>
+            <div class="col-sm-10">
+              <input type="text" name="payment_payneteasy_endpoint_id" value="{{ payment_payneteasy_endpoint_id }}" id="input-endpoint-id" class="form-control"/>
+              <span>{{ text_endpoint_id }}</span>
+              <div id="error-endpoint-id" class="invalid-feedback"></div>
+            </div>
+          </div>
+
+          <div class="row mb-3 required">
+            <label for="input-control-key" class="col-sm-2 col-form-label">{{ entry_control_key }}</label>
+            <div class="col-sm-10">
+              <input type="text" name="payment_payneteasy_control_key" value="{{ payment_payneteasy_control_key }}" id="input-control-key" class="form-control"/>
+              <span>{{ text_control_key }}</span>
+              <div id="error-control-key" class="invalid-feedback"></div>
+            </div>
+          </div>
+
+          <div class="row mb-3 required">
+            <label for="input-login" class="col-sm-2 col-form-label">{{ entry_login }}</label>
+            <div class="col-sm-10">
+              <input type="text" name="payment_payneteasy_login" value="{{ payment_payneteasy_login }}" id="input-login" class="form-control"/>
+              <span>{{ text_login }}</span>
+              <div id="error-login" class="invalid-feedback"></div>
+            </div>
+          </div>
+
+          <div class="row mb-3">
+            <label for="input-test-mode" class="col-sm-2 col-form-label">{{ entry_test_mode }}</label>
+            <div class="col-sm-10">
+              <div class="form-check form-switch form-switch-lg">
+                <input type="hidden" name="payment_payneteasy_test_mode" value="0"/>
+                <input type="checkbox" name="payment_payneteasy_test_mode" value="1" id="input-test-mode" class="form-check-input" {% if payment_payneteasy_test_mode %} checked="checked" {% endif %}/>
+              </div>
+              <span>{{ text_test_mode }}</span>
+            </div>
+          </div>
+
+          <div class="row mb-3">
+            <label for="input-logging" class="col-sm-2 col-form-label">{{ entry_logging }}</label>
+            <div class="col-sm-10">
+              <div class="form-check form-switch form-switch-lg">
+                <input type="hidden" name="payment_payneteasy_logging" value="0"/>
+                <input type="checkbox" name="payment_payneteasy_logging" value="1" id="input-logging" class="form-check-input" {% if payment_payneteasy_logging %} checked="checked" {% endif %}/>
+              </div>
+              <span>{{ text_logging }}</span>
+            </div>
+          </div>
+
+          <div class="row mb-3">
+            <label for="input-transaction-end-status" class="col-sm-2 col-form-label">{{ entry_transaction_end_status }}</label>
+            <div class="col-sm-10">
+              <select name="payment_payneteasy_transaction_end_status" id="input-transaction-end-status" class="form-control">
+                {% for order_status in order_statuses %}
+                <option value="{{ order_status.order_status_id }}" {% if order_status.order_status_id == payment_payneteasy_transaction_end_status %} selected="selected" {% endif %}>{{ order_status.name }}</option>
+                {% endfor %}
+              </select>
+              <span>{{ text_transaction_end_status }}</span>
+            </div>
+          </div>
+          
+          <div class="row mb-3">
+            <label for="input-status" class="col-sm-2 col-form-label">{{ entry_status }}</label>
+            <div class="col-sm-10">
+              <div class="form-check form-switch form-switch-lg">
+                <input type="hidden" name="payment_payneteasy_status" value="0"/>
+                <input type="checkbox" name="payment_payneteasy_status" value="1" id="input-status" class="form-check-input"{% if payment_payneteasy_status %} checked{% endif %}/>
+              </div>
+              <span>{{ text_status }}</span>
+            </div>
+          </div>
+          
+          <div class="row mb-3">
+            <label for="input-sort-order" class="col-sm-2 col-form-label">{{ entry_sort_order }}</label>
+            <div class="col-sm-10">
+              <input type="text" name="payment_payneteasy_sort_order" value="{{ payment_payneteasy_sort_order }}" placeholder="{{ entry_sort_order }}" id="input-sort-order" class="form-control"/>
+            </div>
+          </div>
+
+          <div class="row mb-3">
+            <label for="input-payment-method" class="col-sm-2 col-form-label">{{ entry_payment_method }}</label>
+            <div class="col-sm-10">
+              <select name="payment_payneteasy_payment_method" id="input-payment-method" class="form-control">
+                {% for payment_method in payment_methods %}
+                  <option value="{{ payment_method.value }}" {% if payment_method.value == payment_payneteasy_payment_method %} selected="selected" {% endif %}>{{ payment_method.name }}</option>
+                {% endfor %}
+              </select>
+              <span>{{ text_payment_method }}</span>
+            </div>
+          </div>
+
+          <div class="row mb-3">
+            <label for="input-cancel-status" class="col-sm-2 col-form-label">{{ entry_cancel_status }}</label>
+            <div class="col-sm-10">
+              <select name="payment_payneteasy_cancel_status" id="input-cancel-status" class="form-control">
+                {% for order_status in order_statuses %}
+                  <option value="{{ order_status.order_status_id }}" {% if order_status.order_status_id == payment_payneteasy_cancel_status %} selected="selected" {% endif %}>{{ order_status.name }}</option>
+                {% endfor %}
+              </select>
+              <span>{{ text_cancel_status }}</span>
+            </div>
+          </div>
+
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{{ footer }}

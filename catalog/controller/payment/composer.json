@@ -1,0 +1,14 @@
+{
+    "autoload": {
+        "psr-4": {
+            "Payneteasy\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "files": ["../../../wp-load.php"]
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.6",
+        "yoast/phpunit-polyfills": "^1.0"
+    }
+}

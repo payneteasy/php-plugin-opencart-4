@@ -1,0 +1,59 @@
+<link href="{{ css }}" type="text/css" rel="stylesheet" />
+<div class="payneteasy">
+
+    {% if desc is not empty %}
+      <div class="payneteasy-row">
+        <div class="payneteasy-col">
+          <img src="{{ logo }}" alt="">
+        </div>
+        <div class="payneteasy-col">
+          {{ desc }}
+        </div>
+      </div>
+    {% endif %}
+
+    <form action="{{ action }}" method="post">
+        {% if payment_method == 'direct' %}
+            <fieldset>
+                <div class="row mb-3 required">
+                    <label for="input-card-number" class="col-sm-2 col-form-label">{{ card_number }} </label>
+                    <div class="col-sm-10">
+                        <input type="text" name="card_number" value="" placeholder="" id="input-card-number" class="form-control">
+                        <div id="error-card-number" class="invalid-feedback"></div>
+                    </div>
+                </div>
+                <div class="row mb-3 required">
+                    <label for="input-printed-name" class="col-sm-2 col-form-label">{{ printed_name }} </label>
+                    <div class="col-sm-10">
+                        <input type="text" name="printed_name" value="" placeholder="" id="input-printed-name" class="form-control">
+                        <div id="error-printed-name" class="invalid-feedback"></div>
+                    </div>
+                </div>
+
+                <div class="row mb-3 required">
+                    <label for="input-expire-month" class="col-sm-2 col-form-label">{{ expire_month }} </label>
+                    <div class="col-sm-4">
+                        <input type="text" name="expire_month" value="" placeholder="MM" id="input-expire-month" class="form-control" maxlength="2" minlength="2">
+                        <div id="error-expire-month" class="invalid-feedback"></div>
+                    </div>
+                    <label for="input-expire-year" class="col-sm-2 col-form-label">{{ expire_year }} </label>
+                    <div class="col-sm-4">
+                        <input type="text" name="expire_year" value="" placeholder="YYYY" id="input-expire-year" class="form-control" maxlength="4" minlength="4">
+                        <div id="error-expire-year" class="invalid-feedback"></div>
+                    </div>
+                </div>
+
+                <div class="row mb-3 required">
+                    <label for="input-cvv2" class="col-sm-2 col-form-label">{{ cvv2 }} </label>
+                    <div class="col-sm-4">
+                        <input type="text" name="cvv2" value="" placeholder="" id="input-cvv2" class="form-control" maxlength="4" minlength="3">
+                        <div id="error-cvv2" class="invalid-feedback"></div>
+                    </div>
+                </div>
+            </fieldset>
+        {% endif %}
+        <div class="buttons">
+            <input type="submit" value="{{ button_confirm }}" id="button-confirm" class="btn btn-primary" />
+        </div>
+    </form>
+</div>
