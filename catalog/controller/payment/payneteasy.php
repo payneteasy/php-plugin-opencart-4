@@ -233,6 +233,12 @@ class Payneteasy extends Controller {
                 throw new \Exception($this->language->get('error_order_not_found'));
             }
 
+            // Only orders paid with this method
+            $payment_code = $order_info['payment_method']['code'] ?? ($order_info['payment_code'] ?? '');
+            if (strpos((string)$payment_code, 'payneteasy') !== 0) {
+                throw new \Exception($this->language->get('error_order_not_found'));
+            }
+
             $action_url = $this->config->get('payment_payneteasy_live_url');
 
             if ($this->config->get('payment_payneteasy_test_mode') == true)
