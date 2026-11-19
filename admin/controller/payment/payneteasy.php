@@ -64,29 +64,25 @@ class PaynetEasy extends \Opencart\System\Engine\Controller {
     public function install(): void {
         if ($this->user->hasPermission('modify', 'extension/payment')) {
             $this->load->model('extension/payneteasy/payment/payneteasy');
-            $this->load->model('setting/event');
             $this->model_extension_payneteasy_payment_payneteasy->install();
-            $this->model_setting_event->addEvent([
-                'code' => 'refund',
-                'description' => 'refund',
-                'trigger' => 'catalog/model/checkout/order/addHistory/after',
-                'action' => 'extension/payneteasy/refund/addHistory',
-                'status' => true,
-                'sort_order' => 0
-            ]);
+            $this->removeLegacyEvent();
         }
     }
 
     public function uninstall(): void {
         if ($this->user->hasPermission('modify', 'extension/payment')) {
             $this->load->model('extension/payneteasy/payment/payneteasy');
-            $this->model_setting_event->deleteEventByCode('refund');
+            $this->removeLegacyEvent();
             $this->model_extension_payneteasy_payment_payneteasy->uninstall();
         }
     }
 
-    public function addHistory(int $order_id, int $order_status_id, string $comment = '', bool $notify = false, bool $override = false): void {
-        $this->log->write($order_id);
+    /**
+     * Removes the debug event registered by earlier versions. Only this
+     * module's event is removed, not other events with the code "refund".
+     */
+    private function removeLegacyEvent(): void {
+        $this->db->query("DELETE FROM `" . DB_PREFIX . "event` WHERE `code` = 'refund' AND `action` = 'extension/payneteasy/refund/addHistory'");
     }
 	
 	
