@@ -184,6 +184,7 @@ class Payneteasy extends Controller {
 
             // One row per order: a new payment attempt replaces the previous one
             if (isset($response['paynet-order-id'], $response['merchant-order-id'])) {
+                $this->ensurePaymentsTable();
                 $this->db->query("DELETE FROM " . DB_PREFIX . "payneteasy_payments WHERE merchant_order_id = '" . (int)$response['merchant-order-id'] . "'");
                 $this->db->query("INSERT INTO " . DB_PREFIX . "payneteasy_payments SET paynet_order_id = '" . (int)$response['paynet-order-id'] . "', merchant_order_id = '" . (int)$response['merchant-order-id'] . "'");
             }
@@ -372,6 +373,17 @@ class Payneteasy extends Controller {
         $data['header'] = $this->load->controller('common/header');
         $data['continue'] = $this->url->link('checkout/cart');
         $this->response->setOutput($this->load->view('common/success', $data));
+    }
+
+    /**
+     * Gateway ids do not fit into int: widen the column of tables created by older versions.
+     */
+    private function ensurePaymentsTable(): void
+    {
+        $column = $this->db->query("SHOW COLUMNS FROM `" . DB_PREFIX . "payneteasy_payments` LIKE 'paynet_order_id'");
+        if ($column->num_rows && stripos($column->row['Type'], 'bigint') !== 0) {
+            $this->db->query("ALTER TABLE `" . DB_PREFIX . "payneteasy_payments` MODIFY `paynet_order_id` bigint(20) unsigned NOT NULL");
+        }
     }
 
     private function signPaymentRequest($data, $endpointId, $merchantControl)
