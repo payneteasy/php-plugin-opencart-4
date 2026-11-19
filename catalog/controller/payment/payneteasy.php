@@ -87,6 +87,12 @@ class Payneteasy extends Controller {
                 throw new \Exception($this->language->get('error_order_not_found'));
             }
 
+            // Only orders paid with this method
+            $payment_code = $order_info['payment_method']['code'] ?? ($order_info['payment_code'] ?? '');
+            if (strpos((string)$payment_code, 'payneteasy') !== 0) {
+                throw new \Exception($this->language->get('error_order_not_found'));
+            }
+
             $keys = [
                 'card_number',
                 'printed_name',
@@ -170,7 +176,11 @@ class Payneteasy extends Controller {
             
             if($this->config->get('payment_payneteasy_logging')) $this->logger->write('confirm: ' . json_encode($response));
 
-            $this->db->query("INSERT INTO " . DB_PREFIX . "payneteasy_payments SET paynet_order_id = '" . $this->db->escape($response['paynet-order-id']) . "', merchant_order_id = '" . $this->db->escape($response['merchant-order-id']) . "'");
+            // One row per order: a new payment attempt replaces the previous one
+            if (isset($response['paynet-order-id'], $response['merchant-order-id'])) {
+                $this->db->query("DELETE FROM " . DB_PREFIX . "payneteasy_payments WHERE merchant_order_id = '" . (int)$response['merchant-order-id'] . "'");
+                $this->db->query("INSERT INTO " . DB_PREFIX . "payneteasy_payments SET paynet_order_id = '" . (int)$response['paynet-order-id'] . "', merchant_order_id = '" . (int)$response['merchant-order-id'] . "'");
+            }
 
             if (!empty($response['redirect-url']) && $this->config->get('payment_payneteasy_payment_method') == 'form') {
                 $this->response->redirect($response['redirect-url']);
@@ -240,11 +250,12 @@ class Payneteasy extends Controller {
                     echo $response['html'];
             }
 
-            if (trim($response['status']) == 'approved') {
-                $this->model_checkout_order->addHistory(
-                  $order_id, 
-                  $this->config->get('payment_payneteasy_transaction_end_status')
-                );
+            if (trim($response['status'] ?? '') == 'approved') {
+                // Add the history entry once: repeated returns do not duplicate it
+                $end_status = (int)$this->config->get('payment_payneteasy_transaction_end_status');
+                if ((int)$order_info['order_status_id'] !== $end_status) {
+                    $this->model_checkout_order->addHistory($order_id, $end_status);
+                }
                 $data['text_message'] = $this->language->get('text_success');
                 $data['heading_title'] = $this->language->get('heading_title_success');
                 $this->cart->clear();
