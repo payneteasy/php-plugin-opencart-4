@@ -263,9 +263,18 @@ class Payneteasy extends Controller {
             }
 
             if (trim($response['status'] ?? '') == 'approved') {
-                // Add the history entry once: repeated returns do not duplicate it
                 $end_status = (int)$this->config->get('payment_payneteasy_transaction_end_status');
-                if ((int)$order_info['order_status_id'] !== $end_status) {
+
+                if ((int)$order_info['order_status_id'] === $end_status) {
+                    // Already paid: repeated returns change nothing
+                } elseif (!$this->isAwaitingPayment($order_info)) {
+                    // The order has been processed further (cancelled, shipped...): keep it
+                    $this->logger->write('callback: order ' . (int)$order_id . ' is not awaiting payment, status not changed');
+                } elseif (!$this->isPaidInFull($order_info, $response)) {
+                    // The order was changed after the payment was started
+                    $this->logger->write('callback: order ' . (int)$order_id . ' amount does not match the payment, status not changed');
+                    throw new \Exception($this->language->get('error_order_not_found'));
+                } else {
                     $this->model_checkout_order->addHistory($order_id, $end_status);
                 }
                 $data['text_message'] = $this->language->get('text_success');
@@ -293,6 +302,39 @@ class Payneteasy extends Controller {
     }
     
     
+    /**
+     * True, if the order has not got a payment result yet
+     *
+     * @param array $order_info Order data.
+     * @return bool
+     */
+    protected function isAwaitingPayment(array $order_info): bool {
+        $status_id = (int)$order_info['order_status_id'];
+
+        // 0: checkout not finished; config_order_status_id: set while the payment is processing
+        return $status_id === 0 || $status_id === (int)$this->config->get('config_order_status_id');
+    }
+
+    /**
+     * True, if the gateway amount and currency match the order total
+     *
+     * @param array $order_info Order data.
+     * @param array $response   Gateway status response.
+     * @return bool
+     */
+    protected function isPaidInFull(array $order_info, array $response): bool {
+        $amount   = trim((string)($response['amount'] ?? ''));
+        $currency = trim((string)($response['currency'] ?? ''));
+
+        if (!preg_match('/^\d+(\.\d{1,2})?$/', $amount)) {
+            return false;
+        }
+
+        // confirm() sends the order total in the default currency
+        return strcasecmp($currency, (string)$this->config->get('config_currency')) === 0
+            && (int)round((float)$amount * 100) === (int)round((float)$order_info['total'] * 100);
+    }
+
     /**
      * Show Success function
      *
