@@ -151,12 +151,9 @@ class Payneteasy extends Controller {
 
             $data['control'] = $this->signPaymentRequest($data, $this->config->get('payment_payneteasy_endpoint_id'), $this->config->get('payment_payneteasy_control_key'));
             
-            $this->model_checkout_order->addHistory(
-              $order_id, 
-              1, 
-              "orderId: " . $order_id, 
-              true
-            );
+            // The order status is set from the gateway answer in callback(). Setting it
+            // here would stop OpenCart from updating the order (address, totals) when
+            // the customer corrects the details and tries again after a failed payment.
             
             $payneteasy = $this->getPaynetApi();
 
@@ -275,7 +272,15 @@ class Payneteasy extends Controller {
                 $data['heading_title'] = $this->language->get('heading_title_success');
                 $this->cart->clear();
                 unset($this->session->data['order_id']);
+            } elseif (trim($response['status'] ?? '') == 'processing') {
+                // Payment in progress: show the order as pending
+                if (!(int)$order_info['order_status_id']) {
+                    $this->model_checkout_order->addHistory($order_id, (int)$this->config->get('config_order_status_id'));
+                }
+                $data['heading_title'] = $this->language->get('heading_title_fail');
+                $data['text_message'] = $this->language->get('text_fail');
             } else {
+                // Declined or error: the order stays editable, the customer can try again
                 $data['heading_title'] = $this->language->get('heading_title_fail');
                 $data['text_message'] = $this->language->get('text_fail');
             }
