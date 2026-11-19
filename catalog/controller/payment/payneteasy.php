@@ -115,6 +115,15 @@ class Payneteasy extends Controller {
                 'cvv2' => $this->request->post['cvv2']?:'',
             ];
 
+            // Stores may skip the payment and shipping address at checkout:
+            // fall back to the store country, which the gateway requires.
+            $country = $order_info['payment_iso_code_2'] ?: $order_info['shipping_iso_code_2'];
+            if (!$country) {
+                $this->load->model('localisation/country');
+                $store_country = $this->model_localisation_country->getCountry((int)$this->config->get('config_country_id'));
+                $country = $store_country['iso_code_2'] ?? '';
+            }
+
             $data = [
                 'client_orderid' => (string)$order_id,
                 'order_desc' => 'Order # ' . $order_id,
@@ -123,7 +132,7 @@ class Payneteasy extends Controller {
                 'address1' => $order_info['payment_address_1']?:$order_info['shipping_address_1'],
                 'city' => $order_info['payment_city']?:$order_info['shipping_city'],
                 'zip_code' => $order_info['payment_postcode']?:$order_info['shipping_postcode'],
-                'country' => $order_info['payment_iso_code_2']?:$order_info['shipping_iso_code_2'],
+                'country' => $country,
                 'phone'      => $order_info['telephone'],
                 'email'      => $order_info['email'],
                 'ipaddress' => $_SERVER['REMOTE_ADDR'],
