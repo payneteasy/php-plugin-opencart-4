@@ -182,10 +182,9 @@ class Payneteasy extends Controller {
             
             if($this->config->get('payment_payneteasy_logging')) $this->logger->write('confirm: ' . json_encode($response));
 
-            // One row per order: a new payment attempt replaces the previous one
+            // Every attempt is kept: the customer may pay in an older tab
             if (isset($response['paynet-order-id'], $response['merchant-order-id'])) {
                 $this->ensurePaymentsTable();
-                $this->db->query("DELETE FROM " . DB_PREFIX . "payneteasy_payments WHERE merchant_order_id = '" . (int)$response['merchant-order-id'] . "'");
                 $this->db->query("INSERT INTO " . DB_PREFIX . "payneteasy_payments SET paynet_order_id = '" . (int)$response['paynet-order-id'] . "', merchant_order_id = '" . (int)$response['merchant-order-id'] . "'");
             }
 
@@ -244,17 +243,14 @@ class Payneteasy extends Controller {
 
             $payneteasy = $this->getPaynetApi();
 
-            $paynet_order_id = $this->db->query("SELECT paynet_order_id FROM " . DB_PREFIX . "payneteasy_payments WHERE merchant_order_id = '".(int)$order_id."'");
+            $response = $this->getPaymentStatus((int)$order_id, $payneteasy, $action_url);
 
-            $data = [
-                'login' => $this->config->get('payment_payneteasy_login'),
-                'client_orderid' => (string)$order_id,
-                'orderid' => $paynet_order_id->row['paynet_order_id'],
-            ];
-
-            $data['control'] = $this->signStatusRequest($data, $this->config->get('payment_payneteasy_login'), $this->config->get('payment_payneteasy_control_key'));
-
-            $response = $payneteasy->status($data, $this->config->get('payment_payneteasy_payment_method'), $this->config->get('payment_payneteasy_test_mode'), $action_url, $this->config->get('payment_payneteasy_endpoint_id'));
+            // The customer is waiting: if the bank has not answered yet and there is no
+            // 3-D Secure page to show, ask again a few times before showing the result
+            for ($attempt = 0; $attempt < 5 && trim($response['status'] ?? '') === 'processing' && empty($response['html']); $attempt++) {
+                sleep(1);
+                $response = $this->getPaymentStatus((int)$order_id, $payneteasy, $action_url);
+            }
 
             if($this->config->get('payment_payneteasy_logging')) $this->logger->write('callback: ' . json_encode($response));
 
@@ -290,7 +286,13 @@ class Payneteasy extends Controller {
                 $data['heading_title'] = $this->language->get('heading_title_fail');
                 $data['text_message'] = $this->language->get('text_fail');
             } else {
-                // Declined or error: the order stays editable, the customer can try again
+                // Declined or error: the order stays editable, the customer can try again.
+                // An order put to the pending status while the payment was processing
+                // (3-D Secure) goes back to "not placed", as a decline without 3-D Secure.
+                if ((int)$order_info['order_status_id'] === (int)$this->config->get('config_order_status_id')
+                    && in_array(trim($response['status'] ?? ''), ['declined', 'filtered', 'error'], true)) {
+                    $this->model_checkout_order->addHistory($order_id, 0, 'PaynetEasy: payment declined');
+                }
                 $data['heading_title'] = $this->language->get('heading_title_fail');
                 $data['text_message'] = $this->language->get('text_fail');
             }
@@ -378,6 +380,49 @@ class Payneteasy extends Controller {
     /**
      * Gateway ids do not fit into int: widen the column of tables created by older versions.
      */
+    /**
+     * Status of the order payment: all attempts of the order are checked, newest first
+     * (the customer may pay in an older tab). An approved attempt wins, then a
+     * processing one, otherwise the latest attempt.
+     */
+    private function getPaymentStatus(int $order_id, PaynetApi $payneteasy, string $action_url): array
+    {
+        $attempts = $this->db->query("SELECT paynet_order_id FROM " . DB_PREFIX . "payneteasy_payments WHERE merchant_order_id = '" . $order_id . "' ORDER BY id DESC LIMIT 20")->rows ?: [['paynet_order_id' => '']];
+
+        $latest = null;
+        $processing = null;
+
+        foreach ($attempts as $row) {
+            $data = [
+                'login' => $this->config->get('payment_payneteasy_login'),
+                'client_orderid' => (string)$order_id,
+                'orderid' => (string)$row['paynet_order_id'],
+            ];
+            $data['control'] = $this->signStatusRequest($data, $this->config->get('payment_payneteasy_login'), $this->config->get('payment_payneteasy_control_key'));
+
+            $response = $payneteasy->status($data, $this->config->get('payment_payneteasy_payment_method'), $this->config->get('payment_payneteasy_test_mode'), $action_url, $this->config->get('payment_payneteasy_endpoint_id'));
+
+            // The gateway answers for any transaction id: use only answers for this order
+            if (isset($response['merchant-order-id']) && trim((string)$response['merchant-order-id']) !== (string)$order_id) {
+                continue;
+            }
+
+            $status = trim((string)($response['status'] ?? ''));
+            if ($status === 'approved') {
+                return $response;
+            }
+            if ($status === 'processing' && $processing === null) {
+                $processing = $response;
+            }
+            if ($latest === null) {
+                $latest = $response;
+            }
+        }
+
+        return $processing ?? $latest ?? [];
+    }
+
+
     private function ensurePaymentsTable(): void
     {
         $column = $this->db->query("SHOW COLUMNS FROM `" . DB_PREFIX . "payneteasy_payments` LIKE 'paynet_order_id'");
