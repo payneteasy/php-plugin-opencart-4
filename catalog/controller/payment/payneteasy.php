@@ -252,6 +252,13 @@ class Payneteasy extends Controller {
                 $response = $this->getPaymentStatus((int)$order_id, $payneteasy, $action_url);
             }
 
+            // The gateway was asked for a while: check the order as it is now,
+            // not as it was before the wait
+            $order_info = $this->model_checkout_order->getOrder($order_id);
+            if (!$order_info) {
+                throw new \Exception($this->language->get('error_order_not_found'));
+            }
+
             if($this->config->get('payment_payneteasy_logging')) $this->logger->write('callback: ' . json_encode($response));
 
             if ($this->config->get('payment_payneteasy_three_d_secure') == true) {
@@ -276,8 +283,11 @@ class Payneteasy extends Controller {
                 }
                 $data['text_message'] = $this->language->get('text_success');
                 $data['heading_title'] = $this->language->get('heading_title_success');
-                $this->cart->clear();
-                unset($this->session->data['order_id']);
+                // Only the cart of the customer who placed this order
+                if ((int)($this->session->data['order_id'] ?? 0) === (int)$order_id) {
+                    $this->cart->clear();
+                    unset($this->session->data['order_id']);
+                }
             } elseif (trim($response['status'] ?? '') == 'processing') {
                 // Payment in progress: show the order as pending
                 if (!(int)$order_info['order_status_id']) {
