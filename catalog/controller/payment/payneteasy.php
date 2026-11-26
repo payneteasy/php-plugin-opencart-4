@@ -214,12 +214,26 @@ class Payneteasy extends Controller {
      * @return void
      */
     public function callback(): void {
-        try {
-            $order_id = $this->session->data['order_id'] ?? $this->request->get['orderId'];
+        $order_id = 0;
+        $is_owner = false;
+        $has_slot = false;
 
-            if (!$order_id) {
+        try {
+            $session_order_id = (int)($this->session->data['order_id'] ?? 0);
+            $order_id = $session_order_id;
+            if (isset($this->request->get['orderId']) && is_scalar($this->request->get['orderId'])) {
+                $order_id = (int)$this->request->get['orderId'];
+            }
+
+            if ($order_id <= 0) {
+                $order_id = 0;
                 throw new \Exception($this->language->get('error_no_order_id_in_session'));
             }
+
+            // The payment result is shown only to the customer whose session holds this
+            // order. Any other request (gateway notification, a return without the session
+            // cookie, a copied link) updates the order and gets a neutral page.
+            $is_owner = $session_order_id === $order_id;
 
             $this->load->model('checkout/order');
             $this->load->language('extension/payneteasy/payment/payneteasy');
@@ -243,11 +257,21 @@ class Payneteasy extends Controller {
 
             $payneteasy = $this->getPaynetApi();
 
+            // Requests without the customer's session ask the gateway once,
+            // and not more often than once in a few seconds per order
+            if (!$is_owner) {
+                $has_slot = $this->acquireCallbackSlot((int)$order_id);
+                if (!$has_slot) {
+                    $this->showNeutral((int)$order_id, true);
+                    return;
+                }
+            }
+
             $response = $this->getPaymentStatus((int)$order_id, $payneteasy, $action_url);
 
             // The customer is waiting: if the bank has not answered yet and there is no
             // 3-D Secure page to show, ask again a few times before showing the result
-            for ($attempt = 0; $attempt < 5 && trim($response['status'] ?? '') === 'processing' && empty($response['html']); $attempt++) {
+            for ($attempt = 0; $is_owner && $attempt < 5 && trim($response['status'] ?? '') === 'processing' && empty($response['html']); $attempt++) {
                 sleep(1);
                 $response = $this->getPaymentStatus((int)$order_id, $payneteasy, $action_url);
             }
@@ -261,7 +285,7 @@ class Payneteasy extends Controller {
 
             if($this->config->get('payment_payneteasy_logging')) $this->logger->write('callback: ' . json_encode($response));
 
-            if ($this->config->get('payment_payneteasy_three_d_secure') == true) {
+            if ($is_owner && $this->config->get('payment_payneteasy_three_d_secure') == true) {
                 if (isset($response['html']))
                     echo $response['html'];
             }
@@ -274,9 +298,13 @@ class Payneteasy extends Controller {
                 } elseif (!$this->isAwaitingPayment($order_info)) {
                     // The order has been processed further (cancelled, shipped...): keep it
                     $this->logger->write('callback: order ' . (int)$order_id . ' is not awaiting payment, status not changed');
+                    $this->addOrderNote((int)$order_id, (int)$order_info['order_status_id'], 'PaynetEasy: payment ' . $this->paymentLabel($response) . ' was approved, but the order had already been processed. The order status was not changed, check the payment.');
                 } elseif (!$this->isPaidInFull($order_info, $response)) {
                     // The order was changed after the payment was started
                     $this->logger->write('callback: order ' . (int)$order_id . ' amount does not match the payment, status not changed');
+                    // An order that is not placed yet is not listed in the admin panel:
+                    // it gets the pending status, so the merchant sees the note
+                    $this->addOrderNote((int)$order_id, (int)$order_info['order_status_id'] ?: (int)$this->config->get('config_order_status_id'), 'PaynetEasy: payment ' . $this->paymentLabel($response) . ' was approved, but it does not match the order total. The order was not marked as paid, check the payment.');
                     throw new \Exception($this->language->get('error_order_not_found'));
                 } else {
                     $this->model_checkout_order->addHistory($order_id, $end_status);
@@ -307,11 +335,117 @@ class Payneteasy extends Controller {
                 $data['text_message'] = $this->language->get('text_fail');
             }
             
-            $this->showSuccess($data);
+            if ($is_owner) {
+                $this->showSuccess($data);
+            } else {
+                $this->showNeutral((int)$order_id);
+            }
         } catch (\Exception $e) {
             $this->log->write("Paynet Pay Error: " . $e->getMessage());
-            $this->response->redirect($this->url->link('checkout/failure'));
+            if ($is_owner) {
+                $this->response->redirect($this->url->link('checkout/failure'));
+            } else {
+                $this->showNeutral((int)$order_id);
+            }
+        } finally {
+            if ($has_slot) {
+                $this->db->query("SELECT RELEASE_LOCK('" . $this->db->escape($this->callbackLockName((int)$order_id)) . "')");
+            }
         }
+    }
+
+
+    /**
+     * Name of the database lock of the order callback
+     */
+    private function callbackLockName(int $order_id): string {
+        return DB_DATABASE . '.' . DB_PREFIX . 'payneteasy_cb_' . $order_id;
+    }
+
+    /**
+     * Limits the gateway requests caused by requests without the customer's session:
+     * one request per order at a time and not more often than once in 3 seconds.
+     *
+     * @param int $order_id Order id.
+     * @return bool False, if the request must not ask the gateway now.
+     */
+    private function acquireCallbackSlot(int $order_id): bool {
+        $name = $this->db->escape($this->callbackLockName($order_id));
+
+        $lock = $this->db->query("SELECT GET_LOCK('" . $name . "', 0) AS `locked`");
+        if ((int)($lock->row['locked'] ?? 0) !== 1) {
+            return false;
+        }
+
+        $key = 'payneteasy.cb.' . $order_id;
+        $last = $this->cache->get($key);
+        if (is_scalar($last) && time() - (int)$last < 3) {
+            $this->db->query("SELECT RELEASE_LOCK('" . $name . "')");
+            return false;
+        }
+        $this->cache->set($key, (string)time(), 60);
+
+        return true;
+    }
+
+    /**
+     * Gateway payment id, amount and currency for an order note
+     */
+    private function paymentLabel(array $response): string {
+        $label = preg_replace('/[^0-9]/', '', (string)($response['paynet-order-id'] ?? ''));
+        $amount = preg_replace('/[^0-9.]/', '', (string)($response['amount'] ?? ''));
+        $currency = preg_replace('/[^A-Za-z]/', '', (string)($response['currency'] ?? ''));
+
+        return trim($label . ($amount !== '' ? ' (' . trim($amount . ' ' . $currency) . ')' : ''));
+    }
+
+    /**
+     * Adds a note to the order history once: repeated requests do not repeat it
+     *
+     * @param int    $order_id        Order id.
+     * @param int    $order_status_id Status kept with the note.
+     * @param string $comment         Note text.
+     * @return void
+     */
+    private function addOrderNote(int $order_id, int $order_status_id, string $comment): void {
+        $exists = $this->db->query("SELECT order_history_id FROM `" . DB_PREFIX . "order_history` WHERE order_id = '" . $order_id . "' AND comment = '" . $this->db->escape($comment) . "' LIMIT 1");
+        if ($exists->num_rows) {
+            return;
+        }
+
+        $this->model_checkout_order->addHistory($order_id, $order_status_id, $comment, false);
+    }
+
+    /**
+     * Page for a request that is not made from the session of the order's customer:
+     * it tells nothing about the order. The first answer sends the browser to the same
+     * address once more: a return from the payment page comes without the session
+     * cookie, the repeated request from the shop's own page carries it.
+     *
+     * @param int  $order_id  Order id, 0 if unknown.
+     * @param bool $throttled True, if the gateway was not asked because of the limit.
+     * @return void
+     */
+    private function showNeutral(int $order_id, bool $throttled = false): void {
+        $this->load->language('extension/payneteasy/payment/payneteasy');
+
+        if ($throttled) {
+            $this->response->addHeader(($this->request->server['SERVER_PROTOCOL'] ?? 'HTTP/1.1') . ' 429 Too Many Requests');
+            $this->response->addHeader('Retry-After: 5');
+        }
+
+        if ($order_id > 0 && empty($this->request->get['shown'])) {
+            $url = htmlspecialchars(str_replace('&amp;', '&', $this->url->link('extension/payneteasy/payment/payneteasy.callback')) . '&orderId=' . $order_id . '&shown=1', ENT_QUOTES, 'UTF-8');
+            $text = htmlspecialchars($this->language->get('text_neutral'), ENT_QUOTES, 'UTF-8');
+            $this->response->addHeader('Cache-Control: no-store');
+            $this->response->setOutput('<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=' . $url . '"><title></title></head><body><p>' . $text . '</p><p><a href="' . $url . '">' . htmlspecialchars($this->language->get('button_continue'), ENT_QUOTES, 'UTF-8') . '</a></p></body></html>');
+            return;
+        }
+
+        $data['heading_title'] = $this->language->get('heading_title_neutral');
+        $data['text_message'] = $this->language->get('text_neutral');
+
+        $this->showSuccess($data);
     }
     
     
@@ -397,7 +531,7 @@ class Payneteasy extends Controller {
      */
     private function getPaymentStatus(int $order_id, PaynetApi $payneteasy, string $action_url): array
     {
-        $attempts = $this->db->query("SELECT paynet_order_id FROM " . DB_PREFIX . "payneteasy_payments WHERE merchant_order_id = '" . $order_id . "' ORDER BY id DESC LIMIT 20")->rows ?: [['paynet_order_id' => '']];
+        $attempts = $this->db->query("SELECT paynet_order_id FROM " . DB_PREFIX . "payneteasy_payments WHERE merchant_order_id = '" . $order_id . "' ORDER BY id DESC LIMIT 5")->rows ?: [['paynet_order_id' => '']];
 
         $latest = null;
         $processing = null;
